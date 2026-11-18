@@ -1,0 +1,26 @@
+{
+    "type": "record",
+    "name": "OrderIssuedEvent",
+    "namespace": "io.github.mitohondriyaa.order.event",
+    "fields": [
+        {
+            "name": "orderNumber",
+            "type": "string"
+        },
+        {
+            "name": "issuedAt",
+            "type": "string"
+        },
+        {
+            "name": "issuedBy",
+            "type": "string"
+        },
+        {
+            "name": "items",
+            "type": {
+                "type": "array",
+                "items": "io.github.mitohondriyaa.order.event.OrderItemEvent"
+            }
+        }
+    ]
+}

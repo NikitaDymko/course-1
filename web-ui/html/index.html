@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Система автоматизации продаж компьютерной и офисной техники</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="config.js"></script>
+</head>
+<body>
+
+<!-- Экран входа -->
+<div id="login-screen" class="login-screen">
+    <h2>Система автоматизации продаж</h2>
+    <p>Войдите, чтобы продолжить работу с системой.</p>
+    <button class="primary" id="login-btn">Войти</button>
+    <div id="login-error" class="error hidden" style="margin-top:16px;"></div>
+</div>
+
+<!-- Основное приложение -->
+<div id="app" class="hidden">
+    <header>
+        <h1>Система автоматизации продаж компьютерной и офисной техники</h1>
+        <div class="user-box">
+            <span id="user-name"></span>
+            <span class="roles" id="user-roles"></span>
+            <button id="logout-btn">Выйти</button>
+        </div>
+    </header>
+
+    <nav class="tabs" id="tabs">
+        <button data-tab="catalog" class="active">Каталог</button>
+        <button data-tab="products">Товары</button>
+        <button data-tab="inventory">Остатки</button>
+        <button data-tab="orders">Заказы</button>
+        <button data-tab="my-orders">Мои заказы</button>
+        <button data-tab="notifications">Уведомления</button>
+        <button data-tab="report">Отчет</button>
+        <button data-tab="audit">Журнал действий</button>
+    </nav>
+
+    <main>
+        <div id="global-error" class="error hidden"></div>
+
+        <!-- Каталог -->
+        <section class="panel active" id="panel-catalog">
+            <h2>Каталог товаров</h2>
+            <div class="toolbar">
+                <input id="catalog-search" placeholder="Поиск по SKU (префикс)">
+                <button class="primary" id="catalog-search-btn">Найти</button>
+                <button id="catalog-refresh-btn">Обновить</button>
+            </div>
+            <div id="product-card" class="product-form hidden">
+                <h3>Карточка товара</h3>
+                <div id="product-card-content"></div>
+                <div class="product-form-actions">
+                    <button id="product-card-close-btn">Закрыть</button>
+                </div>
+            </div>
+            <div id="catalog-content"></div>
+        </section>
+
+        <!-- Товары -->
+        <section class="panel" id="panel-products">
+            <h2>Товары</h2>
+            <div class="toolbar">
+                <button id="products-refresh-btn">Обновить</button>
+                <button class="primary" id="product-new-btn">Добавить товар</button>
+            </div>
+            <div id="product-form" class="product-form hidden">
+                <h3 id="product-form-title">Новый товар</h3>
+                <input type="hidden" id="product-id">
+                <div class="product-form-grid">
+                    <input id="product-sku" placeholder="SKU">
+                    <input id="product-name" placeholder="Наименование">
+                    <input id="product-description" placeholder="Описание">
+                    <input id="product-price" type="number" step="0.01" placeholder="Цена">
+                    <input id="product-warranty" type="number" placeholder="Гарантия, мес.">
+                </div>
+                <div class="attributes-block">
+                    <div class="attributes-header">
+                        <span>Характеристики</span>
+                        <button type="button" id="product-attribute-add-btn">+ Добавить</button>
+                    </div>
+                    <div id="product-attributes"></div>
+                </div>
+                <div class="product-form-actions">
+                    <button class="primary" id="product-save-btn">Сохранить</button>
+                    <button id="product-cancel-btn">Отмена</button>
+                </div>
+            </div>
+            <div id="products-content"></div>
+        </section>
+
+        <!-- Остатки -->
+        <section class="panel" id="panel-inventory">
+            <h2>Остатки на складе</h2>
+            <div class="toolbar">
+                <button id="inventory-refresh-btn">Обновить</button>
+            </div>
+            <div id="inventory-form" class="product-form hidden">
+                <h3 id="inventory-form-title">Изменение остатка</h3>
+                <input type="hidden" id="inventory-product-id">
+                <div class="product-form-grid">
+                    <select id="inventory-product-select"></select>
+                    <input id="inventory-quantity" type="number" min="0" placeholder="Количество">
+                </div>
+                <div class="product-form-actions">
+                    <button class="primary" id="inventory-save-btn">Сохранить</button>
+                    <button id="inventory-cancel-btn">Отмена</button>
+                </div>
+            </div>
+            <div id="inventory-content"></div>
+        </section>
+
+        <!-- Заказы -->
+        <section class="panel" id="panel-orders">
+            <h2>Заказы</h2>
+            <div class="toolbar">
+                <select id="orders-status">
+                    <option value="">Все статусы</option>
+                    <option value="NEW">NEW — создан</option>
+                    <option value="ACCEPTED">ACCEPTED — принят</option>
+                    <option value="AWAITING_PAYMENT">AWAITING_PAYMENT — ожидает оплаты</option>
+                    <option value="PAID">PAID — оплачен</option>
+                    <option value="READY">READY — готов к выдаче</option>
+                    <option value="ISSUED">ISSUED — выдан</option>
+                    <option value="REJECTED">REJECTED — отклонён</option>
+                    <option value="CANCELLED">CANCELLED — отменён</option>
+                </select>
+                <button id="orders-refresh-btn">Обновить</button>
+                <button class="primary" id="order-new-btn">Оформить заказ</button>
+            </div>
+
+            <div id="order-form" class="product-form hidden">
+                <h3>Новый заказ</h3>
+                <div class="product-form-grid">
+                    <input id="order-email" placeholder="Email покупателя">
+                    <input id="order-first-name" placeholder="Имя">
+                    <input id="order-last-name" placeholder="Фамилия">
+                    <input id="order-phone" placeholder="Телефон">
+                    <input id="order-discount" type="number" step="0.01" min="0" max="100" placeholder="Скидка, %">
+                    <label class="checkbox-row">
+                        <input id="order-consent" type="checkbox"> Согласие на обработку персональных данных
+                    </label>
+                </div>
+                <h4>Позиции заказа</h4>
+                <div id="order-items"></div>
+                <div class="product-form-actions">
+                    <button id="order-add-item-btn">Добавить позицию</button>
+                    <button class="primary" id="order-save-btn">Оформить</button>
+                    <button id="order-cancel-btn">Отмена</button>
+                </div>
+            </div>
+
+            <div id="orders-content"></div>
+        </section>
+
+        <!-- Мои заказы -->
+        <section class="panel" id="panel-my-orders">
+            <h2>Мои заказы</h2>
+            <div class="toolbar">
+                <button id="my-orders-refresh-btn">Обновить</button>
+            </div>
+            <div id="my-orders-content"></div>
+            <div id="my-order-details" class="product-form hidden">
+                <h3>Детали заказа</h3>
+                <div id="my-order-details-content"></div>
+                <div class="product-form-actions">
+                    <button id="my-order-details-close-btn">Закрыть</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Уведомления -->
+        <section class="panel" id="panel-notifications">
+            <h2>Журнал уведомлений</h2>
+            <div class="toolbar">
+                <input id="notifications-order-number" placeholder="Номер заказа (необязательно)">
+                <button class="primary" id="notifications-filter-btn">Показать</button>
+                <button id="notifications-refresh-btn">Обновить</button>
+            </div>
+            <div id="notifications-content"></div>
+            <h2 style="margin-top:24px;">Задания на звонок</h2>
+            <div id="calltasks-content"></div>
+        </section>
+
+        <!-- Отчет -->
+        <section class="panel" id="panel-report">
+            <h2>Отчет по заказам</h2>
+            <div class="toolbar">
+                <select id="report-status">
+                    <option value="">Все статусы</option>
+                    <option value="NEW">NEW</option>
+                    <option value="ACCEPTED">ACCEPTED</option>
+                    <option value="AWAITING_PAYMENT">AWAITING_PAYMENT</option>
+                    <option value="PAID">PAID</option>
+                    <option value="READY">READY</option>
+                    <option value="ISSUED">ISSUED</option>
+                    <option value="REJECTED">REJECTED</option>
+                    <option value="CANCELLED">CANCELLED</option>
+                </select>
+                <button id="report-refresh-btn">Построить</button>
+            </div>
+            <div id="report-content"></div>
+        </section>
+
+        <!-- Журнал действий -->
+        <section class="panel" id="panel-audit">
+            <h2>Журнал действий</h2>
+            <div class="toolbar">
+                <input id="audit-order-id" placeholder="Номер или ID заказа (необязательно)">
+                <button class="primary" id="audit-filter-btn">Показать</button>
+                <button id="audit-refresh-btn">Обновить</button>
+            </div>
+            <div id="audit-content"></div>
+        </section>
+    </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+    "type": "record",
+    "name": "OrderItemEvent",
+    "namespace": "io.github.mitohondriyaa.order.event",
+    "fields": [
+        {
+            "name": "productId",
+            "type": "string"
+        },
+        {
+            "name": "quantity",
+            "type": "int"
+        }
+    ]
+}

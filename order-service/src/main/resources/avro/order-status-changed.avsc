@@ -1,0 +1,35 @@
+{
+    "type": "record",
+    "name": "OrderStatusChangedEvent",
+    "namespace": "io.github.mitohondriyaa.order.event",
+    "fields": [
+        {
+            "name": "orderNumber",
+            "type": "string"
+        },
+        {
+            "name": "status",
+            "type": "string"
+        },
+        {
+            "name": "changedAt",
+            "type": "string"
+        },
+        {
+            "name": "changedBy",
+            "type": "string"
+        },
+        {
+            "name": "email",
+            "type": "string"
+        },
+        {
+            "name": "firstName",
+            "type": "string"
+        },
+        {
+            "name": "lastName",
+            "type": "string"
+        }
+    ]
+}

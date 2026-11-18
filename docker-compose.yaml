@@ -1,0 +1,436 @@
+# =========================================================================
+# Система автоматизации продаж компьютерной и офисной техники
+#
+# Быстрый старт:
+#   cp .env.example .env
+#   docker compose up -d --build
+#
+# Интерфейс:  http://localhost:3000
+# Swagger:    http://localhost:9000/swagger-ui.html
+# Keycloak:   http://localhost:8088  (admin / admin)
+# Kafka UI:   http://localhost:8086
+#
+# Логин в системе: test-user / password
+#
+# -------------------------------------------------------------------------
+# Наружу публикуются только точки входа:
+#   web-ui (3000), api-gateway (9000), keycloak (8088), kafka-ui (8086).
+# Остальные контейнеры (сервисы, БД, Redis, Kafka, Schema Registry)
+# доступны только внутри docker-сети по именам сервисов.
+#
+# Внутренние сервисы слушают порты 8080-8083, но эти порты НЕ публикуются
+# на хост: снаружи к ним можно обратиться только через api-gateway.
+# =========================================================================
+
+services:
+  # ---------------------------------------------------------------- Product
+  mongodb-product:
+    image: mongo:8
+    container_name: mongodb-product
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: product-service
+    volumes:
+      - ./mongodb-product-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis-cache-product:
+    image: redis:8.0
+    container_name: redis-cache-product
+    volumes:
+      - ./redis-cache-product-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  redis-counter-product:
+    image: redis:8.0
+    container_name: redis-counter-product
+    volumes:
+      - ./redis-counter-product-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  product-service:
+    build:
+      context: ../product-service
+      dockerfile: Dockerfile
+    image: ndymko/ecommerce-product-service:latest
+    container_name: product-service
+    environment:
+      REDIS_CACHE_HOST: redis-cache-product
+      REDIS_CACHE_PORT: 6379
+      REDIS_COUNTER_HOST: redis-counter-product
+      REDIS_COUNTER_PORT: 6379
+      DB_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      DB_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
+      DB_HOST: mongodb-product
+      DB_PORT: 27017
+      AUTH_SERVER_URL: http://${KEYCLOAK_HOST:-172.17.0.1}:${KEYCLOAK_PORT:-8088}
+      AUTH_SERVER_REALM: microservices-realm
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    depends_on:
+      mongodb-product:
+        condition: service_healthy
+      redis-cache-product:
+        condition: service_healthy
+      redis-counter-product:
+        condition: service_healthy
+      kafka-1:
+        condition: service_started
+      schema-registry:
+        condition: service_started
+
+  # ------------------------------------------------------------------ Kafka
+  kafka-1:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-1
+    hostname: kafka-1
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 0
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka-1:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-2
+    hostname: kafka-2
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka-1:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-3
+    hostname: kafka-3
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka-1:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    container_name: schema-registry
+    hostname: schema-registry
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_started
+      kafka-3:
+        condition: service_started
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka-1:9092,PLAINTEXT://kafka-2:9092,PLAINTEXT://kafka-3:9092
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "${KAFKA_UI_PORT:-8086}:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      DYNAMIC_CONFIG_ENABLED: 'true'
+
+  # ------------------------------------------------------------------ Order
+  mysql-order:
+    image: mysql:8
+    container_name: mysql-order
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+    volumes:
+      - ./mysql-order-data:/var/lib/mysql
+      - ./init/mysql-order/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  order-service:
+    build:
+      context: ../order-service
+      dockerfile: Dockerfile
+    image: ndymko/ecommerce-order-service:latest
+    container_name: order-service
+    environment:
+      INVENTORY_URL: http://inventory-service:8082
+      PRODUCT_URL: http://product-service:8080
+      DB_HOST: mysql-order
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+      AUTH_SERVER_URL: http://${KEYCLOAK_HOST:-172.17.0.1}:${KEYCLOAK_PORT:-8088}
+      AUTH_SERVER_REALM: microservices-realm
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    depends_on:
+      mysql-order:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+
+  # -------------------------------------------------------------- Inventory
+  mysql-inventory:
+    image: mysql:8
+    container_name: mysql-inventory
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+    volumes:
+      - ./mysql-inventory-data:/var/lib/mysql
+      - ./init/mysql-inventory/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  redis-idempotency-inventory:
+    image: redis:8.0
+    container_name: redis-idempotency-inventory
+    volumes:
+      - ./redis-idempotency-inventory-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  inventory-service:
+    build:
+      context: ../inventory-service
+      dockerfile: Dockerfile
+    image: ndymko/ecommerce-inventory-service:latest
+    container_name: inventory-service
+    environment:
+      REDIS_IDEMPOTENCY_HOST: redis-idempotency-inventory
+      REDIS_IDEMPOTENCY_PORT: 6379
+      DB_HOST: mysql-inventory
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+      AUTH_SERVER_URL: http://${KEYCLOAK_HOST:-172.17.0.1}:${KEYCLOAK_PORT:-8088}
+      AUTH_SERVER_REALM: microservices-realm
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    depends_on:
+      mysql-inventory:
+        condition: service_healthy
+      redis-idempotency-inventory:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+
+  # ----------------------------------------------------------- Notification
+  redis-idempotency-notification:
+    image: redis:8.0
+    container_name: redis-idempotency-notification
+    volumes:
+      - ./redis-idempotency-notification-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  notification-service:
+    build:
+      context: ../notification-service
+      dockerfile: Dockerfile
+    image: ndymko/ecommerce-notification-service:latest
+    container_name: notification-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      REDIS_IDEMPOTENCY_HOST: redis-idempotency-notification
+      REDIS_IDEMPOTENCY_PORT: 6379
+      MAIL_HOST: ${MAIL_HOST:-sandbox.smtp.mailtrap.io}
+      MAIL_PORT: ${MAIL_PORT:-2525}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+    depends_on:
+      redis-idempotency-notification:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+
+  # --------------------------------------------------------------- Keycloak
+  mysql-keycloak:
+    image: mysql:8
+    container_name: mysql-keycloak
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+      MYSQL_DATABASE: keycloak
+      MYSQL_USER: keycloak
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+    volumes:
+      - ./mysql-keycloak-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.2
+    container_name: keycloak
+    command:
+      - start-dev
+      - --import-realm
+      - --hostname=${KEYCLOAK_HOST:-172.17.0.1}
+      - --hostname-strict=false
+    environment:
+      DB_VENDOR: MYSQL
+      DB_ADDR: mysql-keycloak
+      DB_DATABASE: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME_PORT: ${KEYCLOAK_PORT:-8088}
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8088}:8080"
+    volumes:
+      - ./keycloak/realms/:/opt/keycloak/data/import/
+    depends_on:
+      mysql-keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /realms/master HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # ------------------------------------------------------------ API Gateway
+  api-gateway:
+    build:
+      context: ../api-gateway
+      dockerfile: Dockerfile
+    image: ndymko/ecommerce-api-gateway:latest
+    container_name: api-gateway
+    ports:
+      - "${API_GATEWAY_PORT:-9000}:9000"
+    environment:
+      INVENTORY_URL: http://inventory-service:8082
+      PRODUCT_URL: http://product-service:8080
+      ORDER_URL: http://order-service:8081
+      NOTIFICATION_URL: http://notification-service:8083
+      AUTH_SERVER_URL: http://${KEYCLOAK_HOST:-172.17.0.1}:${KEYCLOAK_PORT:-8088}
+      AUTH_SERVER_REALM: microservices-realm
+    depends_on:
+      product-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------- Web UI
+  web-ui:
+    build:
+      context: ./web-ui
+      dockerfile: Dockerfile
+    image: ndymko/ecommerce-web-ui:latest
+    container_name: web-ui
+    ports:
+      - "${WEB_UI_PORT:-3000}:80"
+    environment:
+      KEYCLOAK_URL: http://${KEYCLOAK_HOST:-172.17.0.1}:${KEYCLOAK_PORT:-8088}
+    depends_on:
+      api-gateway:
+        condition: service_started
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
